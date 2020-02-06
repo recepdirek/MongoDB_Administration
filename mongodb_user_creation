@@ -1,0 +1,79 @@
+use admin
+
+db.createUser(
+{
+    user: "root",
+    pwd: "password",
+    roles: [ "root" ]
+})
+
+
+Read user :
+
+db.createUser({ user: "user",
+  pwd: "pass",
+  roles: [
+    { role: "read", db: "database" } 
+  ]
+})
+
+Update User: 
+
+db.updateUser("user",{
+  roles: [
+    { role: "readWrite", db: "database" } 
+  ]
+})
+
+
+drop or remove user:
+
+db.removeUser("user")
+or
+db.dropUser("user")
+
+
+
+
+view user: 
+
+db.getUsers();
+
+
+
+revoke a role:
+
+use reporting
+db.revokeRolesFromUser(
+    "reportsUser",
+    [
+      { role: "readWrite", db: "accounts" }
+    ]
+)
+
+
+
+grant a role:
+
+use reporting
+db.grantRolesToUser(
+    "reportsUser",
+    [
+      { role: "read", db: "accounts" }
+    ]
+)
+
+
+
+change the password: 
+
+mongo --port 27017 -u myUserAdmin -p 'abc123' --authenticationDatabase 'admin'
+
+db.changeUserPassword("reporting", "SOh3TbYhxuLiW8ypJPxmt1oOfL")
+
+
+
+
+https://docs.mongodb.com/manual/tutorial/manage-users-and-roles/
+
+

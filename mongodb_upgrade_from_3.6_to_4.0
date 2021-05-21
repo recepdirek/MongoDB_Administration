@@ -1,0 +1,252 @@
+Upgrade Version Path
+To upgrade an existing MongoDB deployment to 4.0, you must be running a 3.6-series release.
+
+ 
+
+Compatibility Changes in MongoDB 4.0
+The following 4.0 changes can affect the compatibility with older versions of MongoDB.
+
+Compatibility Changes in MongoDB 4.0 — MongoDB Manual
+
+Initial Syncs
+Before starting the upgrade, ensure that no initial sync is in progress. Performing the upgrade while an initial sync is in progress will cause the initial sync to restart.
+
+ 
+
+Feature Compatibility Version
+The 3.6 replica set must have featureCompatibilityVersion set to 3.6.
+
+db.adminCommand( { getParameter: 1, featureCompatibilityVersion: 1 } )
+
+
+if it is not set to 3.6, you must run the following command.
+
+db.adminCommand( { setFeatureCompatibilityVersion: "3.6" } )
+
+Replica Set Member State
+Ensure that no replica set member is in ROLLBACK or RECOVERING state.
+
+rs.status()
+
+ 
+
+Upgrade Process
+We are going to upgrade from MongoDB 3.6 to 4.0 using a “rolling” upgrade to minimize downtime by upgrading the members individually while the other members are available.
+
+ 
+
+Manual Rolling Upgrade Steps for Replica Set
+Upgrade Secondary Members of the Replica set:
+
+ 
+
+1- list current mongodb binaries
+dpkg -l | grep mongo
+
+
+2- take backup of config file
+cp mongod.conf /tmp/mongod.conf.org
+
+ 
+
+3- stop the mongod secondary node
+sudo service mongod stop
+
+make sure mongo stopped
+
+ubuntu@ip-172-31-10-90:~/tmp$ mongo
+MongoDB shell version v3.6.21
+connecting to: mongodb://127.0.0.1:27017/?gssapiServiceName=mongodb
+2021-01-22T12:37:30.813+0000 W NETWORK [thread1] Failed to connect to 127.0.0.1:27017, in(checking socket for error after poll), reason: Connection refused
+2021-01-22T12:37:30.821+0000 E QUERY [thread1] Error: couldn't connect to server 127.0.0.1:27017, connection attempt failed :
+connect@src/mongo/shell/mongo.js:275:13
+@(connect):1:6
+exception: connect failed
+
+ 
+
+4- purge the existing mongodb binaries on secondary node
+sudo apt-get purge mongodb-org*
+
+ 
+
+ubuntu@ip-172-31-31-168:/etc$ sudo apt-get purge mongodb-org*
+Reading package lists... Done
+Building dependency tree
+Reading state information... Done
+Note, selecting 'mongodb-org-unstable-tools' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-mongos' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-tools' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-unstable-server' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-unstable-shell' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-shell' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-unstable-mongos' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-unstable' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org' for glob 'mongodb-org*'
+Note, selecting 'mongodb-org-server' for glob 'mongodb-org*'
+Package 'mongodb-org-unstable' is not installed, so not removed
+Package 'mongodb-org-unstable-mongos' is not installed, so not removed
+Package 'mongodb-org-unstable-server' is not installed, so not removed
+Package 'mongodb-org-unstable-shell' is not installed, so not removed
+Package 'mongodb-org-unstable-tools' is not installed, so not removed
+The following packages will be REMOVED:
+mongodb-org* mongodb-org-mongos* mongodb-org-server* mongodb-org-shell* mongodb-org-tools*
+0 upgraded, 0 newly installed, 5 to remove and 35 not upgraded.
+After this operation, 301 MB disk space will be freed.
+Do you want to continue? [Y/n] y
+(Reading database ... 84980 files and directories currently installed.)
+Removing mongodb-org (3.6.21) ...
+Removing mongodb-org-mongos (3.6.21) ...
+Removing mongodb-org-server (3.6.21) ...
+Removing mongodb-org-shell (3.6.21) ...
+Removing mongodb-org-tools (3.6.21) ...
+Processing triggers for man-db (2.8.3-2ubuntu0.1) ...
+(Reading database ... 84930 files and directories currently installed.)
+Purging configuration files for mongodb-org (3.6.21) ...
+Purging configuration files for mongodb-org-server (3.6.21) ...
+
+ 
+
+5- check if there is any mongodb binary on the server. You should not see any.
+dpkg -l | grep mongo
+
+ 
+
+6- Install MongoDB 4.0 version
+wget -qO - https://www.mongodb.org/static/pgp/server-4.0.asc | sudo apt-key add -
+
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.0.list
+
+sudo apt-get update
+
+sudo apt-get install -y mongodb-org
+
+ 
+
+ 
+
+7- copy original config file into its place
+sudo mv mongod.conf.org /etc/mongod.conf
+
+8- start the mongod instance
+sudo systemctl start mongod
+
+sudo systemctl status mongod
+
+sudo systemctl enable mongod
+
+sudo systemctl stop mongod
+
+sudo systemctl restart mongod
+
+ 
+
+9- Check the replica set status. 
+rs.status()
+
+10- Check the member if it’s version is 4.0
+mongo --username root --password --authenticationDatabase admin --host ip-172-31-24-191 --port 27017
+
+
+rs0:SECONDARY> db.version()
+4.0.22
+rs0:SECONDARY>
+
+ 
+
+Upgrade Primary Member of the Replica set:
+
+1- Step down the replica set primary
+Connect a mongo shell to the primary and use rs.stepDown() to step down the primary and force an election of a new primary.
+
+
+ 
+
+2- Check replica set status and new primary node is elected
+rs.status()
+
+3- stop the the ex primary node make sure db is not working
+sudo service mongod stop
+
+
+ 
+
+ 
+
+4- list current mongodb binaries
+dpkg -l | grep mongo
+
+
+5- take backup of config file
+cp mongod.conf /tmp/mongod.conf.org
+
+ 
+
+ 
+
+4- purge the existing mongodb binaries on secondary node
+sudo apt-get purge mongodb-org*
+
+ 
+
+5- check if there is any mongodb binary on the server. You should not see any.
+dpkg -l | grep mongo
+
+ 
+
+6- Install MongoDB 4.0 version
+wget -qO - https://www.mongodb.org/static/pgp/server-4.0.asc | sudo apt-key add -
+
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.0.list
+
+sudo apt-get update
+
+sudo apt-get install -y mongodb-org
+
+ 
+
+ 
+
+7- copy original config file into its place
+sudo mv mongod.conf.org /etc/mongod.conf
+
+8- start the mongod instance
+sudo systemctl start mongod
+
+sudo systemctl status mongod
+
+sudo systemctl enable mongod
+
+sudo systemctl stop mongod
+
+sudo systemctl restart mongod
+
+ 
+
+9- Check the replica set status. 
+rs.status()
+
+10- Check the member if it’s version is 4.0
+mongo --username root --password --authenticationDatabase admin --host ip-172-31-24-191 --port 27017
+
+
+rs0:SECONDARY> db.version()
+4.0.22
+rs0:SECONDARY>
+
+ 
+
+Enable backwards-incompatible 4.0 features.
+At this point, you can run the 4.0 binaries without the 4.0 features that are incompatible with 3.6.
+
+On the primary, run the setFeatureCompatibilityVersion command in the admin database:
+
+copycopied
+
+
+db.adminCommand( { getParameter: 1, featureCompatibilityVersion: 1 } )
+db.adminCommand( { setFeatureCompatibilityVersion: "4.0" } )
+
+ 
+
+ 

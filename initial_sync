@@ -1,0 +1,133 @@
+Initial Sync
+Initial sync copies all the data from one member of the replica set to another member. A member uses initial sync when the member has no data, such as when the member is new, or when the member has data but is missing a history of the set’s replication.
+
+When you perform an initial sync, MongoDB:
+
+Clones all databases. To clone, the mongod queries every collection in each source database and inserts all data into its own copies of these collections. At this time, _id indexes are also built. The clone process only copies valid data, omitting invalid documents.
+
+Applies all changes to the data set. Using the oplog from the source, the mongod updates its data set to reflect the current state of the replica set.
+
+Builds all indexes on all collections (except _id indexes, which were already completed).
+
+When the mongod finishes building all index builds, the member can transition to a normal state, i.e. secondary.
+
+
+
+
+
+
+
+$ mongo
+MongoDB shell version: 3.2.17
+connecting to: test                                                                                                                                                
+Mongo:SECONDARY>                                                                                                                                               
+Mongo:SECONDARY> use admin                                                                                                                                     
+switched to db admin                                                                                                                                              
+Mongo:SECONDARY> db.shutdownServer()                                                                                                                           
+server should be down...
+2020-02-26T11:01:40.613+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27017 (127.0.0.1) failed
+2020-02-26T11:01:40.613+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:27017, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-26T11:01:40.613+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27017 (127.0.0.1) failed failed
+2020-02-26T11:01:40.616+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27017 (127.0.0.1) failed
+2020-02-26T11:01:40.616+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:27017, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-26T11:01:40.616+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27017 (127.0.0.1) failed failed
+>
+
+
+
+/db/data $ sudo rm -Rf *
+Password:
+/db/data  $ ls
+/db/data  $ ls -lart
+total 8
+drwxr-xr-x 3 root    root    4096 Jan 27 10:36 ..
+drwxr-xr-x 2 mongodb mongodb 4096 Feb 26 11:06 .
+
+
+
+
+
+/db/data  $ sudo /etc/init.d/mongodb start
+ * WARNING: mongodb has already been started                                                                                                                       
+/db/data  $ sudo /etc/init.d/mongodb stop
+ * Stopping mongodb ...                                                                                                                                            
+ * start-stop-daemon: no matching processes found                                                                                                             [ ok ]
+/db/data  $ sudo /etc/init.d/mongodb start
+ * Starting mongodb ...                                                                                                                                            
+about to fork child process, waiting until server is ready for connections.
+forked process: 6838
+child process started successfully, parent exiting                                                                                                            [ ok ]
+/db/data  $ ls
+
+
+
+
+
+Mongo:STARTUP2> rs.slaveOk()                                                                                                                                   
+Mongo:STARTUP2> show databases                                                                                                                                 
+local           0.000GB
+
+Mongo:STARTUP2>
+
+$ mongo
+MongoDB shell version: 3.2.17
+connecting to: test
+Mongo:PRIMARY>                                                                                                                                                 
+Mongo:PRIMARY>                                                                                                                                                 
+Mongo:PRIMARY>                                                                                                                                                 
+Mongo:PRIMARY> rs.status()                                                                                                                                     
+{
+        "set" : "linxMongo",
+        "date" : ISODate("2020-02-26T11:22:19.517Z"),
+        "myState" : 1,
+        "term" : NumberLong(-1),
+        "heartbeatIntervalMillis" : NumberLong(2000),
+        "members" : [
+                {
+                        "_id" : 0,
+                        "name" : "h1:27017",
+                        "health" : 1,
+                        "state" : 5,
+                        "stateStr" : "STARTUP2",
+                        "uptime" : 911,
+                        "optime" : Timestamp(0, 0),
+                        "optimeDate" : ISODate("1970-01-01T00:00:00Z"),
+                        "lastHeartbeat" : ISODate("2020-02-26T11:22:18.473Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-26T11:22:18.505Z"),
+                        "pingMs" : NumberLong(0),
+                        "syncingTo" : "turquoise.linx.net:27017",
+                        "configVersion" : 79742
+                },
+                {
+                        "_id" : 1,
+                        "name" : "h2:27017",
+                        "health" : 1,
+                        "state" : 7,
+                        "stateStr" : "ARBITER",
+                        "uptime" : 33435,
+                        "lastHeartbeat" : ISODate("2020-02-26T11:22:19.108Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-26T11:22:19.106Z"),
+                        "pingMs" : NumberLong(0),
+                        "configVersion" : 79742
+                },
+                {
+                        "_id" : 2,
+                        "name" : "h3:27017",
+                        "health" : 1,
+                        "state" : 1,
+                        "stateStr" : "PRIMARY",
+                        "uptime" : 1120667,
+                        "optime" : Timestamp(1582716139, 323),
+                        "optimeDate" : ISODate("2020-02-26T11:22:19Z"),
+                        "electionTime" : Timestamp(1582250668, 1),
+                        "electionDate" : ISODate("2020-02-21T02:04:28Z"),
+                        "configVersion" : 79742,
+                        "self" : true
+                }
+        ],
+        "ok" : 1
+}
+Mongo:PRIMARY>
+
+
+

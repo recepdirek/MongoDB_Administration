@@ -1,0 +1,704 @@
+MongoDB 3.2  ( 3 nodes replica set - 1 primary + 2 secondary ) 
+
+Oplog size : 1 MB
+
+
+
+/usr/bin/mongod -f /etc/mongodb.conf
+
+
+
+
+
+1- check the current size of the oplog on each node
+rs.printReplicationInfo()
+
+
+
+rs0:PRIMARY> rs.printReplicationInfo()
+configured oplog size:   1MB
+log length start to end: 44secs (0.01hrs)
+oplog first event time:  Thu Feb 06 2020 09:34:11 GMT+0000 (UTC)
+oplog last event time:   Thu Feb 06 2020 09:34:55 GMT+0000 (UTC)
+now:                     Thu Feb 06 2020 09:35:27 GMT+0000 (UTC)
+
+
+
+mongo --port 27018
+
+rs0:SECONDARY> rs.printReplicationInfo()
+configured oplog size:   1MB
+log length start to end: 4secs (0hrs)
+oplog first event time:  Thu Feb 06 2020 09:34:51 GMT+0000 (UTC)
+oplog last event time:   Thu Feb 06 2020 09:34:55 GMT+0000 (UTC)
+now:                     Thu Feb 06 2020 09:39:07 GMT+0000 (UTC)
+
+
+
+mongo --port 27019
+
+
+
+rs0:SECONDARY> rs.printReplicationInfo()
+configured oplog size:   1MB
+log length start to end: 4secs (0hrs)
+oplog first event time:  Thu Feb 06 2020 09:34:51 GMT+0000 (UTC)
+oplog last event time:   Thu Feb 06 2020 09:34:55 GMT+0000 (UTC)
+now:                     Thu Feb 06 2020 09:39:44 GMT+0000 (UTC)
+
+
+
+
+
+
+
+2- Shut down the mongod instance for one of the non-primary members of your replica set. For example, to shut down, use the db.shutdownServer() method:
+
+
+
+
+ubuntu@ip-172-31-22-81:/var/lib/mongodb$ mongo --port 27018
+MongoDB shell version: 3.2.22
+connecting to: 127.0.0.1:27018/test
+Server has startup warnings:
+2020-02-06T09:33:57.315+0000 I CONTROL  [initandlisten] ** WARNING: You are running this process as the root user, which is not recommended.
+2020-02-06T09:33:57.315+0000 I CONTROL  [initandlisten]
+2020-02-06T09:33:57.315+0000 I CONTROL  [initandlisten]
+2020-02-06T09:33:57.315+0000 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2020-02-06T09:33:57.315+0000 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2020-02-06T09:33:57.315+0000 I CONTROL  [initandlisten]
+rs0:SECONDARY> use admin
+switched to db admin
+rs0:SECONDARY> db.shutdownServer()
+server should be down...
+2020-02-06T09:40:46.100+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27018 (127.0.0.1) failed
+2020-02-06T09:40:46.100+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:27018, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-06T09:40:46.100+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27018 (127.0.0.1) failed failed
+2020-02-06T09:40:46.103+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27018 (127.0.0.1) failed
+2020-02-06T09:40:46.103+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:27018, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-06T09:40:46.103+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27018 (127.0.0.1) failed failed
+
+
+
+
+
+3- Restart the mongod as a standalone, making the following configuration updates:
+
+
+Remove --replSetName.
+Modify --port to a different port. [1]
+If the mongod is a shard or config server member, you must also:
+Remove --shardsvr if a shard member and --configsvr if a config server member.
+Set parameter skipShardingConfigurationChecks (available in MongoDB 3.2.19+) to true in the setParameter section.
+change the config file and start mongod standalone instance :  ( mongod2.conf) 
+
+
+
+# mongod.conf
+
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb/db2
+  journal:
+    enabled: true
+
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod2.log
+
+# network interfaces
+net:
+  #bindIp: 127.0.0.1 - Important to comment this line
+  #port: 27018
+  port: 28018
+
+
+#replication:
+#replication:
+#   replSetName: rs0
+
+
+ubuntu@ip-172-31-22-81:~$ sudo mongod --config /etc/mongod2.conf --fork
+about to fork child process, waiting until server is ready for connections.
+forked process: 3463
+child process started successfully, parent exiting
+ubuntu@ip-172-31-22-81:~$
+
+
+
+
+
+
+
+
+
+
+
+4- Backup the oplog collection of standalone node (optional)
+
+
+ubuntu@ip-172-31-22-81:~$ mongodump --db local --collection 'oplog.rs' --port 28018
+2020-02-06T09:50:09.164+0000    writing local.oplog.rs to
+2020-02-06T09:50:09.165+0000    done dumping local.oplog.rs (2 documents)
+ubuntu@ip-172-31-22-81:~$
+
+
+
+
+
+5-Recreate the Oplog with a New Size and a Seed Entry
+Save the last entry from the oplog. For example, connect to the instance using the mongo shell, and enter the following command to switch to the local database:
+
+
+
+use local
+In mongo shell scripts you can use the following operation to set the db object:
+
+
+
+db = db.getSiblingDB('local')
+Ensure that the temp temporary collection is empty by dropping the collection:
+
+
+
+db.temp.drop()
+Use the db.collection.save() method and a sort on reverse natural order to find the last entry and save it to a temporary collection:
+
+
+
+db.temp.save( db.oplog.rs.find( { }, { ts: 1, h: 1 } ).sort( {$natural : -1} ).limit(1).next() )
+To see this oplog entry, use the following operation:
+
+
+
+db.temp.find()
+Remove the Existing Oplog Collection
+Drop the old oplog.rs collection in the local database. Use the following command:
+
+
+
+db = db.getSiblingDB('local')
+db.oplog.rs.drop()
+This returns true in the shell.
+
+Create a New Oplog
+Use the create command to create a new oplog of a different size. Specify the size argument in bytes. A value of 20 * 1024 * 1024 will create a new oplog that’s 20 megabytes:
+
+
+
+db.runCommand( { create: "oplog.rs", capped: true, size: (20 * 1024 * 1024) } )
+Upon success, this command returns the following status:
+
+
+
+{ "ok" : 1 }
+Insert the Last Entry of the Old Oplog into the New Oplog
+Insert the previously saved last entry from the old oplog into the new oplog. For example:
+
+
+
+db.oplog.rs.save( db.temp.findOne() )
+To confirm the entry is in the new oplog, use the following operation:
+
+
+
+db.oplog.rs.find()
+
+
+here are the outputs of the executed commands: 
+
+ubuntu@ip-172-31-22-81:~$ mongo --port 28018
+MongoDB shell version: 3.2.22
+connecting to: 127.0.0.1:28018/test
+> use local
+switched to db local
+> db = db.getSiblingDB('local')
+local
+> db.temp.drop()
+false
+> db.temp.save( db.oplog.rs.find( { }, { ts: 1, h: 1 } ).sort( {$natural : -1} ).limit(1).next() )
+WriteResult({ "nInserted" : 1 })
+> db.temp.find()
+{ "_id" : ObjectId("5e3be1ca1aac5d77a5fe8780"), "ts" : Timestamp(1580981695, 1), "h" : NumberLong("3714314097946604601") }
+> db = db.getSiblingDB('local')
+local
+> db.oplog.rs.drop()
+true
+> db.runCommand( { create: "oplog.rs", capped: true, size: (20 * 1024 * 1024) } )
+{ "ok" : 1 }
+> db.oplog.rs.save( db.temp.findOne() )
+WriteResult({
+        "nMatched" : 0,
+        "nUpserted" : 1,
+        "nModified" : 0,
+        "_id" : ObjectId("5e3be1ca1aac5d77a5fe8780")
+})
+> db.oplog.rs.find()
+{ "_id" : ObjectId("5e3be1ca1aac5d77a5fe8780"), "ts" : Timestamp(1580981695, 1), "h" : NumberLong("3714314097946604601") }
+> db.shutdownServer()
+shutdown command only works with the admin database; try 'use admin'
+> use admin
+switched to db admin
+> db.shutdownServer()
+server should be down...
+2020-02-06T09:53:30.350+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:28018 (127.0.0.1) failed
+2020-02-06T09:53:30.356+0000 I NETWORK  [thread1] Socket recv() errno:104 Connection reset by peer 127.0.0.1:28018
+2020-02-06T09:53:30.356+0000 I NETWORK  [thread1] SocketException: remote: (NONE):0 error: 9001 socket exception [RECV_ERROR] server [127.0.0.1:28018]
+2020-02-06T09:53:30.356+0000 I NETWORK  [thread1] reconnect 127.0.0.1:28018 (127.0.0.1) failed failed
+> exit
+bye
+
+
+
+
+
+6- update the config file with proper port and replica set
+
+
+
+# mongod.conf
+
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb/db2
+  journal:
+    enabled: true
+
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod2.log
+
+# network interfaces
+net:
+  #bindIp: 127.0.0.1 - Important to comment this line
+  port: 27018
+
+
+#replication:
+replication:
+   replSetName: rs0
+7- restart the member
+
+sudo mongod --config /etc/mongod2.conf --fork
+
+
+
+
+
+rs0:SECONDARY> rs.status()
+{
+        "set" : "rs0",
+        "date" : ISODate("2020-02-06T10:31:44.212Z"),
+        "myState" : 2,
+        "term" : NumberLong(1),
+        "syncingTo" : "ip-172-31-22-81:27019",
+        "heartbeatIntervalMillis" : NumberLong(2000),
+        "members" : [
+                {
+                        "_id" : 0,
+                        "name" : "ip-172-31-22-81:27017",
+                        "health" : 1,
+                        "state" : 1,
+                        "stateStr" : "PRIMARY",
+                        "uptime" : 516,
+                        "optime" : {
+                                "ts" : Timestamp(1580984901, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:28:21Z"),
+                        "lastHeartbeat" : ISODate("2020-02-06T10:31:44.181Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-06T10:31:43.504Z"),
+                        "pingMs" : NumberLong(0),
+                        "electionTime" : Timestamp(1580981651, 2),
+                        "electionDate" : ISODate("2020-02-06T09:34:11Z"),
+                        "configVersion" : 3
+                },
+                {
+                        "_id" : 1,
+                        "name" : "ip-172-31-22-81:27018",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 517,
+                        "optime" : {
+                                "ts" : Timestamp(1580984901, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:28:21Z"),
+                        "syncingTo" : "ip-172-31-22-81:27019",
+                        "configVersion" : 3,
+                        "self" : true
+                },
+                {
+                        "_id" : 2,
+                        "name" : "ip-172-31-22-81:27019",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 516,
+                        "optime" : {
+                                "ts" : Timestamp(1580984901, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:28:21Z"),
+                        "lastHeartbeat" : ISODate("2020-02-06T10:31:44.181Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-06T10:31:43.503Z"),
+                        "pingMs" : NumberLong(0),
+                        "syncingTo" : "ip-172-31-22-81:27017",
+                        "configVersion" : 3
+                }
+        ],
+        "ok" : 1
+}
+rs0:SECONDARY>
+
+
+
+rs0:SECONDARY> rs.printReplicationInfo()
+configured oplog size:   20MB
+log length start to end: 3206secs (0.89hrs)
+oplog first event time:  Thu Feb 06 2020 09:34:55 GMT+0000 (UTC)
+oplog last event time:   Thu Feb 06 2020 10:28:21 GMT+0000 (UTC)
+now:                     Thu Feb 06 2020 10:32:03 GMT+0000 (UTC)
+rs0:SECONDARY>
+
+
+
+
+
+On the Primary 
+
+
+Always use rs.stepDown() to force the primary to become a secondary, before stopping the server. This facilitates a more efficient election process.
+
+
+
+ubuntu@ip-172-31-22-81:~$ mongo --port 27017
+MongoDB shell version: 3.2.22
+connecting to: 127.0.0.1:27017/test
+rs0:PRIMARY> rs.stepDown()
+2020-02-06T10:34:45.880+0000 E QUERY    [thread1] Error: error doing query: failed: network error while attempting to run command 'replSetStepDown' on host '127.0.0.1:27017'  :
+DB.prototype.runCommand@src/mongo/shell/db.js:135:1
+DB.prototype.adminCommand@src/mongo/shell/db.js:153:16
+rs.stepDown@src/mongo/shell/utils.js:1202:12
+@(shell):1:1
+2020-02-06T10:34:45.883+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27017 (127.0.0.1) failed
+2020-02-06T10:34:45.883+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27017 (127.0.0.1) ok
+
+rs0:SECONDARY> rs.status()
+{
+        "set" : "rs0",
+        "date" : ISODate("2020-02-06T10:35:14.325Z"),
+        "myState" : 2,
+        "term" : NumberLong(2),
+        "syncingTo" : "ip-172-31-22-81:27018",
+        "heartbeatIntervalMillis" : NumberLong(2000),
+        "members" : [
+                {
+                        "_id" : 0,
+                        "name" : "ip-172-31-22-81:27017",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 3677,
+                        "optime" : {
+                                "ts" : Timestamp(1580985295, 1),
+                                "t" : NumberLong(2)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:34:55Z"),
+                        "syncingTo" : "ip-172-31-22-81:27018",
+                        "configVersion" : 3,
+                        "self" : true
+                },
+                {
+                        "_id" : 1,
+                        "name" : "ip-172-31-22-81:27018",
+                        "health" : 1,
+                        "state" : 1,
+                        "stateStr" : "PRIMARY",
+                        "uptime" : 724,
+                        "optime" : {
+                                "ts" : Timestamp(1580985295, 1),
+                                "t" : NumberLong(2)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:34:55Z"),
+                        "lastHeartbeat" : ISODate("2020-02-06T10:35:12.568Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-06T10:35:12.719Z"),
+                        "pingMs" : NumberLong(0),
+                        "electionTime" : Timestamp(1580985294, 1),
+                        "electionDate" : ISODate("2020-02-06T10:34:54Z"),
+                        "configVersion" : 3
+                },
+                {
+                        "_id" : 2,
+                        "name" : "ip-172-31-22-81:27019",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 3619,
+                        "optime" : {
+                                "ts" : Timestamp(1580985295, 1),
+                                "t" : NumberLong(2)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:34:55Z"),
+                        "lastHeartbeat" : ISODate("2020-02-06T10:35:12.885Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-06T10:35:13.884Z"),
+                        "pingMs" : NumberLong(0),
+                        "syncingTo" : "ip-172-31-22-81:27018",
+                        "configVersion" : 3
+                }
+        ],
+        "ok" : 1
+}
+rs0:SECONDARY>
+
+
+
+
+
+shutdown the instance and update the config file. 
+
+
+
+rs0:SECONDARY> use admin
+switched to db admin
+rs0:SECONDARY> db.shutdownServer()
+server should be down...
+2020-02-06T10:35:48.867+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27017 (127.0.0.1) failed
+2020-02-06T10:35:48.867+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:27017, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-06T10:35:48.867+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27017 (127.0.0.1) failed failed
+2020-02-06T10:35:48.869+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:27017 (127.0.0.1) failed
+2020-02-06T10:35:48.869+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:27017, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-06T10:35:48.869+0000 I NETWORK  [thread1] reconnect 127.0.0.1:27017 (127.0.0.1) failed failed
+>
+> exit
+bye
+
+
+
+
+ubuntu@ip-172-31-22-81:~$ sudo vi /etc/mongod1.conf
+
+
+
+# mongod.conf
+
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb/db1
+  journal:
+    enabled: true
+
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod1.log
+
+# network interfaces
+net:
+  #bindIp: 127.0.0.1 - Important to comment this line
+  #port: 27017
+  port: 28107
+
+
+#replication:
+#replication:
+#   oplogSizeMB: 1
+#   replSetName: rs0
+
+
+
+
+node started as standalone
+
+ubuntu@ip-172-31-22-81:~$ sudo mongod --config /etc/mongod1.conf --fork
+about to fork child process, waiting until server is ready for connections.
+forked process: 3876
+child process started successfully, parent exiting
+ubuntu@ip-172-31-22-81:~$ mongo --port 27017
+MongoDB shell version: 3.2.22
+
+
+
+ubuntu@ip-172-31-22-81:~$ mongo --port 28107
+MongoDB shell version: 3.2.22
+connecting to: 127.0.0.1:28107/test
+>
+
+> use local
+switched to db local
+> db = db.getSiblingDB('local')
+local
+> db.temp.drop()
+false
+> db.temp.save( db.oplog.rs.find( { }, { ts: 1, h: 1 } ).sort( {$natural : -1} ).limit(1).next() )
+WriteResult({ "nInserted" : 1 })
+> db.temp.find()
+{ "_id" : ObjectId("5e3bedb876702e463cc972eb"), "ts" : Timestamp(1580985295, 1), "h" : NumberLong("7346738469596995472") }
+> db = db.getSiblingDB('local')
+local
+> db.oplog.rs.drop()
+true
+> db.runCommand( { create: "oplog.rs", capped: true, size: (100 * 1024 * 1024 * 1024) } )
+{ "ok" : 1 }
+> db.oplog.rs.save( db.temp.findOne() )
+WriteResult({
+        "nMatched" : 0,
+        "nUpserted" : 1,
+        "nModified" : 0,
+        "_id" : ObjectId("5e3bedb876702e463cc972eb")
+})
+> db.oplog.rs.find()
+{ "_id" : ObjectId("5e3bedb876702e463cc972eb"), "ts" : Timestamp(1580985295, 1), "h" : NumberLong("7346738469596995472") }
+> db.shutdownServer()
+shutdown command only works with the admin database; try 'use admin'
+> use admin
+switched to db admin
+> db.shutdownServer()
+server should be down...
+2020-02-06T10:44:24.100+0000 I NETWORK  [thread1] trying reconnect to 127.0.0.1:28107 (127.0.0.1) failed
+2020-02-06T10:44:24.100+0000 W NETWORK  [thread1] Failed to connect to 127.0.0.1:28107, in(checking socket for error after poll), reason: errno:111 Connection refused
+2020-02-06T10:44:24.100+0000 I NETWORK  [thread1] reconnect 127.0.0.1:28107 (127.0.0.1) failed failed
+> exit
+bye
+
+
+
+change the config file back and restart the instance as replica set member
+
+# mongod.conf
+
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb/db1
+  journal:
+    enabled: true
+
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod1.log
+
+# network interfaces
+net:
+  #bindIp: 127.0.0.1 - Important to comment this line
+  port: 27017
+
+
+#replication:
+replication:
+   replSetName: rs0
+
+
+
+
+
+
+ubuntu@ip-172-31-22-81:~$ sudo mongod --config /etc/mongod1.conf --fork
+about to fork child process, waiting until server is ready for connections.
+forked process: 3921
+child process started successfully, parent exiting
+ubuntu@ip-172-31-22-81:~$
+ubuntu@ip-172-31-22-81:~$ mongo --port 27017
+MongoDB shell version: 3.2.22
+connecting to: 127.0.0.1:27017/test
+Server has startup warnings:
+2020-02-06T10:46:37.669+0000 I CONTROL  [initandlisten] ** WARNING: You are running this process as the root user, which is not recommended.
+2020-02-06T10:46:37.669+0000 I CONTROL  [initandlisten]
+2020-02-06T10:46:37.669+0000 I CONTROL  [initandlisten]
+2020-02-06T10:46:37.669+0000 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2020-02-06T10:46:37.669+0000 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2020-02-06T10:46:37.669+0000 I CONTROL  [initandlisten]
+
+
+
+
+
+
+rs0:SECONDARY> rs.printReplicationInfo()
+configured oplog size:   20MB
+log length start to end: 0secs (0hrs)
+oplog first event time:  Thu Feb 06 2020 10:34:55 GMT+0000 (UTC)
+oplog last event time:   Thu Feb 06 2020 10:34:55 GMT+0000 (UTC)
+now:                     Thu Feb 06 2020 10:47:13 GMT+0000 (UTC)
+
+
+
+rs0:SECONDARY> rs.status()
+{
+        "set" : "rs0",
+        "date" : ISODate("2020-02-06T10:47:26.846Z"),
+        "myState" : 2,
+        "term" : NumberLong(2),
+        "heartbeatIntervalMillis" : NumberLong(2000),
+        "members" : [
+                {
+                        "_id" : 0,
+                        "name" : "ip-172-31-22-81:27017",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 49,
+                        "optime" : {
+                                "ts" : Timestamp(1580985295, 1),
+                                "t" : NumberLong(-1)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:34:55Z"),
+                        "infoMessage" : "could not find member to sync from",
+                        "configVersion" : 3,
+                        "self" : true
+                },
+                {
+                        "_id" : 1,
+                        "name" : "ip-172-31-22-81:27018",
+                        "health" : 1,
+                        "state" : 1,
+                        "stateStr" : "PRIMARY",
+                        "uptime" : 49,
+                        "optime" : {
+                                "ts" : Timestamp(1580985295, 1),
+                                "t" : NumberLong(2)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:34:55Z"),
+                        "lastHeartbeat" : ISODate("2020-02-06T10:47:22.683Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-06T10:47:25.661Z"),
+                        "pingMs" : NumberLong(0),
+                        "electionTime" : Timestamp(1580985294, 1),
+                        "electionDate" : ISODate("2020-02-06T10:34:54Z"),
+                        "configVersion" : 3
+                },
+                {
+                        "_id" : 2,
+                        "name" : "ip-172-31-22-81:27019",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 49,
+                        "optime" : {
+                                "ts" : Timestamp(1580985295, 1),
+                                "t" : NumberLong(2)
+                        },
+                        "optimeDate" : ISODate("2020-02-06T10:34:55Z"),
+                        "lastHeartbeat" : ISODate("2020-02-06T10:47:22.683Z"),
+                        "lastHeartbeatRecv" : ISODate("2020-02-06T10:47:25.662Z"),
+                        "pingMs" : NumberLong(0),
+                        "syncingTo" : "ip-172-31-22-81:27018",
+                        "configVersion" : 3
+                }
+        ],
+        "ok" : 1
+}
+rs0:SECONDARY>
+
+
+
+
+
+
+

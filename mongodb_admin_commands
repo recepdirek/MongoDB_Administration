@@ -1,0 +1,73 @@
+Connecting to mongodb: 
+
+mongo --username user --password --authenticationDatabase admin --host hostname --port 27017
+
+
+
+Getting database version : 
+
+db.version()
+
+
+
+View future compatibility version
+
+db.adminCommand( { getParameter: 1, featureCompatibilityVersion: 1 } )
+
+
+
+
+
+Oplog log length and size: 
+
+rs.printReplicationInfo()                                                                                                                                                                                                               
+
+
+
+
+Replication lag status: 
+
+db.printSlaveReplicationInfo()
+
+
+
+Current Operations:
+
+db.currentOp()
+
+
+
+get current connection counts:
+
+db.serverStatus().connections
+
+
+
+
+
+get collection stats: 
+
+db.collection_name.stats()
+
+
+
+get indexes of a collection:
+
+db.collection_name.getIndexes()
+
+
+
+find the latest record: 
+
+ 
+repl1:PRIMARY> db.live_ports_audit.find({},{_id:1}).sort({_id:-1}).limit(1)                                                                                                                                                         
+{ "_id" : ObjectId("5e58f23f7573b43139137634") }
+
+repl1:PRIMARY> ObjectId("5e58f23f7573b43139137634").getTimestamp()                                                                                                                                                                  
+ISODate("2020-02-28T10:58:07Z")
+
+
+
+get index stats: 
+
+db.collection_name.aggregate([{$indexStats:{}}])

@@ -1,0 +1,129 @@
+What is sharding ?
+
+Sharding refers to the process of splitting data up across machines; the term partitioning is also sometimes used to describe this concept. By putting a subset of data on each machine, it becomes possible to store more data and handle more load without requiring larger or more powerful machines, just a larger quantity of less-powerful machines.
+
+MongoDB’s sharding allows you to create a cluster of many machines (shards) and break up your collection across them, putting a subset of data on each shard. This allows your application to grow beyond the resource limits of a standalone server or replica set.
+
+
+
+
+
+Sharding is the most difficult and complex way of configuring MongoDB, both from a development and operational point of view. There are many components to configure and monitor and data moves around the cluster automatically
+
+
+
+Many people are confused about the difference between replication and sharding. Remember that replication creates an exact copy of your data on multiple servers, so every server is a mirror-image of every other server. Conversely, every shard contains a different subset of data.
+
+
+
+One of the goals of sharding is to make a cluster of 5, 10, or 1,000 machines look like a single machine to your application. To hide these details from the application, we run a routing process called mongos in front of the shards. This router keeps a “table of contents” that tells it which shard contains which data. Applications can connect to this router and issue requests normally, as shown in Figure 13-1. The router, knowing what data is on which shard, is able to forward the requests to the appropriate shard(s). If there are responses to the request, the router collects them, merges them, and sends them back to the application. As far as the application knows, it’s connected to a standalone mongod, as below.
+
+
+
+
+
+The shell is the client and is connected to a mongos. You can start passing requests to the mongos and it’ll route them to the shards. You don’t really have to know anything about the shards, like how many their are or what their addresses are. So long as there are some shards out there, you can pass the requests to the mongos and allow it to forward them appropriately.
+
+
+
+
+
+
+
+When you shard a collection, you choose a shard key. This is a field or two that MongoDB uses to break up data. For example, if you choose to shard on "username", MongoDB would break up the data into ranges of usernames: "a1-steak-sauce" through "def con", "defcon1" through "howie1998", and so on. Choosing a shard key can be thought of as choosing an ordering for the data in the collection. This is a similar concept to indexing, and for good reason: the shard key becomes the most important index on your collection as it gets bigger. To even create a shard key, the field(s) must be indexed
+
+
+
+Before enabling sharding, we have to create an index on the key we want to shard by: > db.users.ensureIndex({"username" : 1}) Now we’ll shard the collection by "username": > sh.shardCollection("test.users", {"username" : 1}) Although we are choosing a shard key without much thought here, it is an important decision that should be carefully considered in a real system. See Chapter 15 for more advice on choosing a shard key. If you wait a few minutes and run sh.status() again, you’ll see that there’s a lot more information displayed than there was before:
+
+
+
+Before enabling sharding, we have to create an index on the key we want to shard by:
+
+> db.users.ensureIndex({"username" : 1})
+
+
+
+Now we’ll shard the collection by "username":
+
+> sh.shardCollection("test.users", {"username" : 1})
+
+
+
+If you wait a few minutes and run sh.status() again, you’ll see that there’s a lot more information displayed than there was before:
+
+
+
+
+
+
+
+The collection has been split up into a dozen chunks, where each chunk is a subset of your data. Looking at the "on" : shard part of the output, you can see that these chunks have been evenly distributed between the shards.
+
+In general, if we are not using the shard key in the query, mongos will have to send the query to every shard.
+
+
+
+
+
+Targeted Queries:
+
+Queries that contain the shard key and can be sent to a single shard or subset of shards are called targeted queries. Queries that must be sent to all shards are called scattergather queries: mongos scatters the query to all the shards and then gathers up the results.
+
+
+
+
+
+When to Shard:
+
+Deciding when to shard is a balancing act. You generally do not want to shard too early because it adds operational complexity to your deployment and forces you to make design decisions that are difficult to change later. On the other hand, you do not want to wait too long to shard because it is difficult to shard an overloaded system without downtime.
+
+In general, sharding is used to:
+
+Increase available RAM
+Increase available disk space
+Reduce load on a server
+Read or write data with greater throughput than a single mongod can handle
+
+
+
+
+Config Servers:
+
+Config servers are the brains of your cluster: they hold all of the metadata about which servers hold what data. Thus, they must be set up first and the data they hold is extremely important: make sure that they are running with journaling enabled and that their data is stored on non-ephemeral drives. Each config server should be on a separate physical machine, preferable geographically distributed. The config servers must be started before any of the mongos processes, as mongos pulls its configuration from them. Config servers are standalone mongod processes, so you can start them up the same way you would a “normal” mongod:
+
+
+
+A common question is why three config servers? The reasoning behind the choice is that one config server is not enough: you need redundancy. Conversely, you don’t want too many config servers, since confirming actions with all of them would be prohibitively time consuming. Also, if any of them goes down, you cluster’s metadata becomes read-only. Thus, three was chosen as enough to give redundancy but not have the downsides of having too many servers.
+
+
+
+If all of your config servers are lost, you must dig through the data on your shards to figure out which data is where. This is possible, but slow and unpleasant. Take frequent backups of config server data. Always take a backup of your config servers before performing any cluster maintenance.
+
+
+
+How MongoDB Tracks Cluster Data
+
+Each mongos must always know where to find a document, given its shard key. Theoretically, MongoDB could track where each and every document lived, but this becomes unwieldy for collections with millions or billions of documents. Thus, MongoDB groups documents into chunks, which are documents in a given range of the shard key. A chunk always lives on a single shard, so MongoDB can keep a small table of chunks mapped to shards. For example, if a user collection’s shard key is {"age" : 1}, one chunk might be all documents with an "age" field between 3 and 17. If mongos gets a query for {"age" : 5}, it can route the query to the shard where the 3−17 chunk lives.
+
+
+
+Shard Key:
+
+When you shard a collection you choose a field or two to use to split up the data. This key (or keys) is called a shard key. Once you have more than a few shards, it’s almost impossible to change your shard key, so it is important to choose correctly (or at least notice any issues quickly). To choose a good shard key, you need to understand your workload and how your shard key is going to distribute your application’s requests. This can be difficult to picture, so try to work out some examples or, even better, try it out on a backup data set with sample traffic. This section has lots of diagrams and explanations, but there is no substitute for trying it on your own data set.
+
+
+
+For each collection that you’re planning to shard, start by answering the following questions:
+
+• How many shards are you planning to grow to? A three-shard cluster has a great deal more flexibility than a thousand-shard cluster. As a cluster gets larger, you should not plan to fire off queries that can hit all shards, so almost all queries must include the shard key.
+
+• Are you sharding to decrease read or write latency? (Latency refers to how long something takes, e.g., a write takes 20 ms, but we need it to take 10 ms.) Decreasing write latency usually involves sending requests to geographically closer or more powerful machines.
+
+• Are you sharding to increase read or write throughput? (Throughput refers to how many requests the cluster can handle at the same time: the cluster can do 1,000 writes in 20 ms, but we need it to do 5,000 writes in 20 ms.) Increasing throughput usually involves adding more parallelization and making sure that requests are distributed evenly across the cluster.
+
+• Are you sharding to increase system resources (e.g., give MongoDB more RAM per GB of data)? If so, you want to keep working set size as small possible. Use these answers to evaluate the following shard key descriptions and decide whether the shard key you choose would work well in your situation. Does it give you the targeted queries that you need? Does it change the throughput or latency of your system in the ways you need? If you need a compact working set, does it provide that?
+
+
+
+Reference: MongoDB: The Definitive Guide, Second Edition by Kristina Chodorow

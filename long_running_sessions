@@ -1,0 +1,21 @@
+find the queries which are running more than 3 seconds on a specific database
+
+db.currentOp(
+   {
+     "active" : true,
+     "secs_running" : { "$gt" : 3 },
+     "ns" : /^xflow\./
+   }
+)
+
+
+
+find the queries which are running more than 3 seconds on the entire databases
+
+
+db.currentOp(
+   {
+     "active" : true,
+     "secs_running" : { "$gt" : 3 }
+   }
+)
